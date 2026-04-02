@@ -47,7 +47,15 @@ const LoginPage = ({ onLogin }) => {
             await authService.sendOtp(payload);
             setStep('otp');
         } catch (err) {
-            setError('Account not found or failed to send code.');
+            if (err.response && err.response.data === 'ACCOUNT_NOT_FOUND') {
+                setError(
+                    <span>
+                        Account not found. <button onClick={() => setFormType('signup')} className="text-[#d4af37] underline font-bold cursor-pointer hover:text-white transition-colors duration-200">Create a new account?</button>
+                    </span>
+                );
+            } else {
+                setError('Failed to send code. Please check your details.');
+            }
         } finally {
             setLoading(false);
         }

@@ -50,6 +50,15 @@ namespace MinutefeelingAPI.Controllers
                 if (!string.IsNullOrEmpty(username) && exists) return BadRequest("Email is already registered.");
             }
 
+            // IF LOGIN ATTEMPT (No username provided), verify account exists
+            if (string.IsNullOrEmpty(username)) {
+                bool exists = false;
+                if (!string.IsNullOrEmpty(email)) exists = await _context.Users.AnyAsync(u => u.Email == email);
+                else if (!string.IsNullOrEmpty(phoneNumber)) exists = await _context.Users.AnyAsync(u => u.PhoneNumber == phoneNumber);
+                
+                if (!exists) return BadRequest("ACCOUNT_NOT_FOUND");
+            }
+
             var code = new Random().Next(1000, 9999).ToString();
             Console.WriteLine($"[AUTH] Generated code {code} for {(string.IsNullOrEmpty(email) ? phoneNumber : email)}");
 
