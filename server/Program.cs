@@ -19,7 +19,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowVite",
-        builder => builder.WithOrigins("http://localhost:5173")
+        builder => builder.WithOrigins("http://localhost:5173", "https://books.harsharoyal.in")
                           .AllowAnyMethod()
                           .AllowAnyHeader());
 });
