@@ -1,0 +1,26 @@
+# Node
+node_modules/
+dist/
+.env
+
+# .NET
+bin/
+obj/
+*.user
+*.userosscache
+*.sln.docstates
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# IDE
+.vscode/
+.idea/
+.gemini/
+
+# Misc
+*.log
+.DS_Store
