@@ -41,6 +41,12 @@ const LoginPage = ({ onLogin }) => {
             return;
         }
 
+        // If manually selected Admin, skip OTP call and go to password
+        if (isAdmin) {
+            setStep('password');
+            return;
+        }
+
         const isEmail = identity.includes('@');
         setLoading(true);
         setError('');
@@ -206,9 +212,14 @@ const LoginPage = ({ onLogin }) => {
                                                     <Mail size={18} />
                                                     <span>Sign in to your account</span>
                                                 </button>
-                                                <div className="login-footer-links-v2">
-                                                    New here? <span className="login-link-v2" onClick={toggleMode}>Create an account</span>
-                                                </div>
+                                                <div className="login-footer-links-v2 flex flex-col gap-2">
+                                                     <div>New here? <span className="login-link-v2" onClick={toggleMode}>Create an account</span></div>
+                                                     <div className="mt-2 pt-2 border-t border-black/5 opacity-40 hover:opacity-100 transition-opacity">
+                                                        <span className="cursor-pointer text-[10px] uppercase tracking-widest text-accent hover:underline font-bold" onClick={() => { setStep('entry'); setIsAdmin(true); setPassword(''); setError(''); }}>
+                                                           Admin Sign In
+                                                        </span>
+                                                     </div>
+                                                 </div>
                                             </div>
                                         </motion.div>
                                     )}

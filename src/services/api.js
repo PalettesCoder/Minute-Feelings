@@ -3,7 +3,7 @@ import axios from 'axios';
 // Use your local backend URL for development, 
 // and your public hosted backend URL for production!
 const API_BASE_URL = import.meta.env.PROD 
-    ? 'https://your-public-backend-url.com/api' // <-- REPLACE THIS with your hosted backend URL later!
+    ? '/api' // Uses relative path in production for better flexibility
     : 'http://localhost:5175/api'; 
 
 const api = axios.create({
