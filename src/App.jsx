@@ -714,10 +714,10 @@ export default function App() {
     const loadBooks = bookService.getAll();
 
     Promise.all([loadBooks, minDelay]).then(([data]) => {
-        setBooks(data);
+        setBooks(data.length > 0 ? data : staticBooks);
         setLoading(false);
     }).catch(() => {
-        setBooks([]);
+        setBooks(staticBooks);
         setLoading(false);
     });
   }, []);
