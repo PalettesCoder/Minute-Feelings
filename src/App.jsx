@@ -710,11 +710,14 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    bookService.getAll().then(data => {
-        setBooks(data.length > 0 ? data : staticBooks);
+    const minDelay = new Promise(resolve => setTimeout(resolve, 10000));
+    const loadBooks = bookService.getAll();
+
+    Promise.all([loadBooks, minDelay]).then(([data]) => {
+        setBooks(data);
         setLoading(false);
     }).catch(() => {
-        setBooks(staticBooks);
+        setBooks([]);
         setLoading(false);
     });
   }, []);
@@ -740,28 +743,25 @@ export default function App() {
     localStorage.removeItem('library_user');
   };
 
-  /*
   if (!user) {
     return <LoginPage onLogin={(u) => {
       setUser(u);
       localStorage.setItem('library_user', JSON.stringify(u));
     }} />;
   }
-  */
-
-  // Bypassing login for now to allow viewing
-  const mockUser = user || { id: 1, email: 'palettescoder@gmail.com', role: 'admin', fullName: 'Development Admin', username: 'palettescoder' };
-  const activeUser = mockUser;
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center w-full h-screen text-accent font-title uppercase tracking-[0.4em] text-xs">
-        Preparing the library...
+      <div className="loader-container">
+        <div className="loader"></div>
+        <div className="loader-text">
+          Opening the archive...
+        </div>
       </div>
     );
   }
 
-  if (isAdminView && activeUser?.role === 'admin') {
+  if (isAdminView && user?.role === 'admin') {
     return <AdminPortal onBack={() => setIsAdminView(false)} />;
   }
 
@@ -777,7 +777,7 @@ export default function App() {
             exit={{ opacity: 0, scale: 0.9 }}
           >
             <Library 
-              user={activeUser}
+              user={user}
               books={books}
               onAdminClick={() => setIsAdminView(true)}
               onSelectBook={(slug) => {
@@ -796,7 +796,7 @@ export default function App() {
           <OpenBook 
             key={`${activeBookSlug}-open`} 
             book={selectedBook} 
-            user={activeUser}
+            user={user}
             onAdminClick={() => setIsAdminView(true)}
             onBackToLibrary={() => {
               setActiveBookSlug(null);
