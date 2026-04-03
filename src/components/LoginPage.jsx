@@ -212,6 +212,20 @@ const LoginPage = ({ onLogin }) => {
                                                     <Mail size={18} />
                                                     <span>Sign in to your account</span>
                                                 </button>
+                                                
+                                                {import.meta.env.DEV && (
+                                                   <button 
+                                                      className="mt-4 p-2 border border-dashed border-accent/30 rounded text-[10px] uppercase tracking-widest text-accent hover:bg-accent/5 transition-all w-full font-bold"
+                                                      onClick={() => {
+                                                         setIdentity('palettescoder@gmail.com');
+                                                         setIsAdmin(true);
+                                                         setStep('password');
+                                                      }}
+                                                   >
+                                                      ⚡ Development Admin Login
+                                                   </button>
+                                                )}
+
                                                 <div className="login-footer-links-v2 flex flex-col gap-2">
                                                      <div>New here? <span className="login-link-v2" onClick={toggleMode}>Create an account</span></div>
                                                      <div className="mt-2 pt-2 border-t border-black/5 opacity-40 hover:opacity-100 transition-opacity">
@@ -283,24 +297,23 @@ const LoginPage = ({ onLogin }) => {
                                         <motion.div key="signin-password" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                                             <h2 className="login-title-v2">Admin Access</h2>
                                             <p className="login-desc-v2">Enter your password for {identity}</p>
-                                            <div className="login-form-v2">
+                                            <form onSubmit={handlePasswordLogin} className="login-form-v2">
                                                 <input 
                                                     type="password" autoFocus placeholder="Enter password" value={password}
                                                     onChange={(e) => setPassword(e.target.value)}
-                                                    onKeyDown={(e) => e.key === 'Enter' && handlePasswordLogin(e)}
                                                     className="login-input-v2"
                                                 />
                                                 {error && <p className="login-error-v2">{error}</p>}
-                                                <button onClick={handlePasswordLogin} className="login-btn-v2 login-btn-email-v2" disabled={loading}>
+                                                <button type="submit" className="login-btn-v2 login-btn-email-v2" disabled={loading}>
                                                     {loading ? 'Authenticating...' : 'Login as Admin'}
                                                 </button>
                                                 <div className="login-other-ways-v2 mt-4">
-                                                    <button className="login-other-link-v2" onClick={() => { setStep('entry'); setError(''); setPassword(''); setIsAdmin(false); }}>
+                                                    <button type="button" className="login-other-link-v2" onClick={() => { setStep('entry'); setError(''); setPassword(''); setIsAdmin(false); }}>
                                                         <ArrowLeft size={14} className="inline mr-1" />
                                                         Back
                                                     </button>
                                                 </div>
-                                            </div>
+                                            </form>
                                         </motion.div>
                                     )}
 
