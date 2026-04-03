@@ -11,6 +11,8 @@ const LoginPage = ({ onLogin }) => {
     const [identity, setIdentity] = useState('');
     const [loginType, setLoginType] = useState('phone');
     const [otp, setOtp] = useState('');
+    const [password, setPassword] = useState('');
+    const [isAdmin, setIsAdmin] = useState(false);
     
     // Sign-up states
     const [signupVerifyType, setSignupVerifyType] = useState('email'); // 'email' or 'phone'
@@ -44,18 +46,43 @@ const LoginPage = ({ onLogin }) => {
         setError('');
         try {
             const payload = isEmail ? { email: identity } : { phoneNumber: identity };
-            await authService.sendOtp(payload);
-            setStep('otp');
+            const res = await authService.sendOtp(payload);
+            
+            if (res.message === 'USER_IS_ADMIN') {
+                setIsAdmin(true);
+                setStep('password');
+            } else {
+                setStep('otp');
+            }
         } catch (err) {
             if (err.response && err.response.data === 'ACCOUNT_NOT_FOUND') {
                 setError(
                     <span>
-                        Account not found. <button onClick={() => setFormType('signup')} className="text-[#d4af37] underline font-bold cursor-pointer hover:text-white transition-colors duration-200">Create a new account?</button>
+                        Account not found. <button onClick={() => setMode('signup')} className="text-[#d4af37] underline font-bold cursor-pointer hover:text-white transition-colors duration-200">Create a new account?</button>
                     </span>
                 );
             } else {
                 setError('Failed to send code. Please check your details.');
             }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handlePasswordLogin = async (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        if (!password) {
+            setError('Please enter your admin password');
+            return;
+        }
+
+        setLoading(true);
+        setError('');
+        try {
+            const user = await authService.loginWithPassword({ email: identity, password });
+            onLogin(user);
+        } catch (err) {
+            setError('Invalid admin password.');
         } finally {
             setLoading(false);
         }
@@ -235,6 +262,31 @@ const LoginPage = ({ onLogin }) => {
                                                     <button className="login-other-link-v2" onClick={() => { setStep('entry'); setError(''); setOtp(''); }}>
                                                         <ArrowLeft size={14} className="inline mr-1" />
                                                         Change email/phone
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    )}
+
+                                    {step === 'password' && (
+                                        <motion.div key="signin-password" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                                            <h2 className="login-title-v2">Admin Access</h2>
+                                            <p className="login-desc-v2">Enter your password for {identity}</p>
+                                            <div className="login-form-v2">
+                                                <input 
+                                                    type="password" autoFocus placeholder="Enter password" value={password}
+                                                    onChange={(e) => setPassword(e.target.value)}
+                                                    onKeyDown={(e) => e.key === 'Enter' && handlePasswordLogin(e)}
+                                                    className="login-input-v2"
+                                                />
+                                                {error && <p className="login-error-v2">{error}</p>}
+                                                <button onClick={handlePasswordLogin} className="login-btn-v2 login-btn-email-v2" disabled={loading}>
+                                                    {loading ? 'Authenticating...' : 'Login as Admin'}
+                                                </button>
+                                                <div className="login-other-ways-v2 mt-4">
+                                                    <button className="login-other-link-v2" onClick={() => { setStep('entry'); setError(''); setPassword(''); setIsAdmin(false); }}>
+                                                        <ArrowLeft size={14} className="inline mr-1" />
+                                                        Back
                                                     </button>
                                                 </div>
                                             </div>

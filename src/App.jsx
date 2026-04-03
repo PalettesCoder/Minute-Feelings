@@ -1,11 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bookmark, ChevronRight, Library as LibraryIcon, ArrowLeft, LogOut } from 'lucide-react';
-import { books } from './data/chapters';
+import { Bookmark, ChevronRight, Library as LibraryIcon, ArrowLeft, LogOut, ShieldCheck, User as UserIcon, ChevronDown, Menu, X, Search, Sparkles } from 'lucide-react';
+import { books as staticBooks } from './data/chapters';
 import LoginPage from './components/LoginPage';
-import { authService, highlightService } from './services/api';
+import AdminPortal from './components/AdminPortal';
+import { authService, highlightService, bookmarkService, bookService } from './services/api';
 
-const Library = ({ onSelectBook, user }) => {
+const Library = ({ onSelectBook, user, onAdminClick, books }) => {
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+        if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+            setShowDropdown(false);
+        }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   return (
     <div className="scrapbook-desk">
       <div className="desk-lighting" />
@@ -22,19 +36,77 @@ const Library = ({ onSelectBook, user }) => {
         className="relative z-10 w-full max-w-7xl mx-auto px-12 pt-16 pb-32 flex flex-col items-center"
       >
         <header className="mb-20 text-center relative">
-          <div className="flex items-center justify-center gap-4 mb-4 opacity-70">
-            <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-white font-title text-xl shadow-lg border-2 border-white/20">
-              {user?.fullName?.charAt(0) || user?.username?.charAt(0) || '?'}
-            </div>
-            <div className="text-left">
-              <div className="text-xs uppercase tracking-widest opacity-50">Welcome back</div>
-              <div className="font-hand text-xl">{user?.fullName || user?.username || 'Fellow Reader'}</div>
+          <div className="flex items-center justify-center gap-6 mb-4">
+            {user?.role === 'admin' && (
+              <button 
+                onClick={onAdminClick}
+                className="px-4 py-2 bg-accent/20 text-accent font-title text-sm rounded-full border border-accent/30 hover:bg-accent/30 transition-all mr-4 flex items-center gap-2"
+              >
+                <LibraryIcon size={16} /> Admin Portal
+              </button>
+            )}
+            <div className="relative">
+              <div 
+                className="flex items-center gap-4 group cursor-pointer hover:opacity-80 transition-all px-4 py-2 rounded-full border border-transparent hover:border-black/5 hover:bg-black/5"
+                onClick={() => setShowDropdown(!showDropdown)}
+              >
+                <div className="w-12 h-12 rounded-full bg-accent flex items-center justify-center text-white font-title text-2xl shadow-xl border-2 border-white/20">
+                  {user?.fullName?.charAt(0) || user?.username?.charAt(0) || '?'}
+                </div>
+                <div className="text-left hidden md:block">
+                  <div className="text-[10px] uppercase tracking-widest opacity-40">Active Reader</div>
+                  <div className="font-hand text-2xl flex items-center gap-2">
+                    {user?.fullName || user?.username || 'Fellow Reader'}
+                    <ChevronDown size={16} className={`transition-transform ${showDropdown ? 'rotate-180' : ''}`} />
+                  </div>
+                </div>
+              </div>
+
+              <AnimatePresence>
+                {showDropdown && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute top-full left-0 mt-4 w-56 bg-[#fcfaf2] border border-black/10 rounded shadow-2xl z-[100] p-2 flex flex-col gap-1 overflow-hidden"
+                    style={{ backgroundImage: 'url("https://www.transparenttextures.com/patterns/cream-paper.png")' }}
+                  >
+                    <div className="washi-tape-small" />
+                    
+                    <div className="px-4 py-3 border-b mb-1">
+                      <div className="text-[10px] uppercase tracking-[0.2em] opacity-40">{user?.username}</div>
+                      <div className="font-title text-sm truncate uppercase tracking-tighter opacity-60 text-[9px]">{user?.role || 'Reader'}</div>
+                    </div>
+
+                    {user?.role === 'admin' && (
+                      <button 
+                        onClick={() => { onAdminClick(); setShowDropdown(false); }}
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-accent/5 text-accent rounded transition-colors text-left"
+                      >
+                        <ShieldCheck size={18} />
+                        <span className="font-title text-xs uppercase tracking-widest font-bold">Admin Portal</span>
+                      </button>
+                    )}
+
+                    <button 
+                      onClick={() => {
+                         localStorage.removeItem('library_user');
+                         window.location.reload();
+                      }}
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-red-50 text-red-600/70 hover:text-red-600 rounded transition-colors text-left w-full"
+                    >
+                      <LogOut size={18} />
+                      <span className="font-title text-xs uppercase tracking-widest font-bold">Close Library</span>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
           <motion.h1 
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="font-hand text-7xl text-[#d4af37] mb-2 drop-shadow-lg"
+            className="font-hand text-6xl text-[#d4af37] mb-2 drop-shadow-lg"
           >
             Minute Feelings
           </motion.h1>
@@ -103,28 +175,72 @@ const BookCover = ({ book, onOpen }) => {
   );
 };
 
-const OpenBook = ({ book, onBackToLibrary, user }) => {
+const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
+  const [isMobileTocOpen, setIsMobileTocOpen] = useState(false);
+  
+  if (!book) {
+    return (
+      <div className="flex items-center justify-center w-full h-full text-accent font-title uppercase tracking-widest text-sm">
+        Opening Archive...
+      </div>
+    );
+  }
+
   // Combine parts and chapters into a flat list for navigation
-  const allChapters = book.parts.flatMap(p => p.chapters.map(c => ({...c, partName: p.name})));
+  // Handle both static parts structure and API flat chapters structure
+  const allChapters = book.parts 
+    ? book.parts.flatMap(p => p.chapters.map(c => ({...c, partName: p.name})))
+    : (book.chapters || []).map(c => ({
+        ...c, 
+        partName: "Stories", 
+        content: typeof c.contentJson === 'string' ? JSON.parse(c.contentJson) : c.content
+      }));
   
   const [activeChapterId, setActiveChapterId] = useState(() => {
     const saved = localStorage.getItem(`last_read_chapter_${book.slug}`);
-    return saved ? parseInt(saved) : allChapters[0].id;
+    return saved ? parseInt(saved) : allChapters[0]?.id || 0;
   });
   
   const [viewMode, setViewMode] = useState('toc');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const readerDropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+        if (readerDropdownRef.current && !readerDropdownRef.current.contains(event.target)) {
+            setShowDropdown(false);
+        }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const [highlights, setHighlights] = useState(() => {
     const saved = localStorage.getItem(`highlights_${book.slug}`);
     return saved ? JSON.parse(saved) : [];
   });
   const [selection, setSelection] = useState({ text: '', visible: false, x: 0, y: 0 });
+  const [bookmarks, setBookmarks] = useState([]);
 
   useEffect(() => {
     if (user) {
         highlightService.getUserHighlights(user.id).then(setHighlights).catch(console.error);
+        bookmarkService.getUserBookmarks(user.id).then(setBookmarks).catch(console.error);
     }
-  }, [user]);
+  }, [user, book.slug]);
+
+  const toggleBookmark = async (chapterId) => {
+    if (!user) return;
+    const isBookmarked = bookmarks.some(b => b.chapterId === chapterId);
+    if (isBookmarked) {
+        await bookmarkService.delete(user.id, chapterId);
+        setBookmarks(bookmarks.filter(b => b.chapterId !== chapterId));
+    } else {
+        const saved = await bookmarkService.create(user.id, chapterId);
+        setBookmarks([...bookmarks, saved]);
+    }
+  };
 
   useEffect(() => {
     if (!user) {
@@ -138,32 +254,47 @@ const OpenBook = ({ book, onBackToLibrary, user }) => {
 
   useEffect(() => {
     const handleMouseUp = (e) => {
+      // Don't close if we clicked the tooltip itself
       if (e.target.closest('.highlight-tooltip')) return;
 
-      if (!e.target.closest('.chapter-body')) {
-        setSelection(s => ({ ...s, visible: false }));
-        return;
-      }
-
-      const sel = window.getSelection();
-      const text = sel.toString().trim();
-      
-      if (text.length > 0 && sel.rangeCount > 0) {
-        const range = sel.getRangeAt(0);
-        const rect = range.getBoundingClientRect();
-        setSelection({
-          text,
-          visible: true,
-          x: rect.left + rect.width / 2,
-          y: rect.top - 10
-        });
-      } else {
-        setSelection(s => ({ ...s, visible: false }));
-      }
+      // Small delay to ensure the browser's selection is fully updated
+      setTimeout(() => {
+        const selection = window.getSelection();
+        const selectedText = selection.toString().trim();
+        
+        if (selectedText && selectedText.length > 2) {
+          try {
+            const range = selection.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            
+            // Ensure we're highlighting in the right page content area
+            const isInsideReader = e.target.closest('.page-right');
+            
+            if (isInsideReader) {
+              setSelection({
+                text: selectedText,
+                x: rect.left + rect.width / 2,
+                y: rect.top - 10,
+                visible: true
+              });
+            } else {
+              setSelection(s => ({ ...s, visible: false }));
+            }
+          } catch (err) {
+            console.error("Selection error:", err);
+          }
+        } else {
+          setSelection(s => ({ ...s, visible: false }));
+        }
+      }, 50);
     };
     
     document.addEventListener('mouseup', handleMouseUp);
-    return () => document.removeEventListener('mouseup', handleMouseUp);
+    document.addEventListener('keyup', handleMouseUp); // Also handle keyboard selection
+    return () => {
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('keyup', handleMouseUp);
+    };
   }, []);
 
   const saveHighlight = async () => {
@@ -182,15 +313,21 @@ const OpenBook = ({ book, onBackToLibrary, user }) => {
       }
     }
     setSelection({ ...selection, visible: false });
-    window.getSelection().removeAllRanges();
   };
-  
   const activeChapter = allChapters.find(c => c.id === activeChapterId) || allChapters[0];
   const leftPageNumber = activeChapter.id * 2 - 1;
   const rightPageNumber = activeChapter.id * 2;
 
-  const renderWithHighlights = (text, chId) => {
-    const chapterHighlights = highlights.filter(h => h.chapterId === chId);
+  const renderWithHighlights = (text, chapterId) => {
+    if (!text) return '';
+    const chapterHighlights = highlights.filter(h => h.chapterId === chapterId);
+    
+    // If it looks like HTML (from the new rich editor), we render it directly
+    // Note: highlighting inside rich text is complex, so we prioritize the rich formatting for now
+    if (text.trim().startsWith('<') && text.trim().endsWith('>')) {
+      return <div dangerouslySetInnerHTML={{ __html: text }} className="rich-content" />;
+    }
+
     if (chapterHighlights.length === 0) return text;
 
     const escapedTexts = chapterHighlights
@@ -231,129 +368,214 @@ const OpenBook = ({ book, onBackToLibrary, user }) => {
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.5, delay: 0.2 }}
-      className="w-full h-full flex flex-col"
+      className="w-full"
     >
-      <div className="flex justify-between items-center mb-6">
-        <button 
-          onClick={onBackToLibrary}
-          className="text-xs uppercase tracking-widest flex items-center gap-1 opacity-50 hover:opacity-100 hover:text-accent transition-all"
-          style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-        >
-          <ArrowLeft size={14} /> Library
-        </button>
-        <div className="text-right flex items-center gap-2 group">
-          <div className="text-[10px] uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity text-accent">{user?.fullName}</div>
-          <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-[10px] font-bold text-accent border border-accent/30 lowercase">
-            {user?.username?.charAt(0) || 'u'}
+      <div className="flex justify-between items-center mb-10 border-b pb-4">
+        {/* Left: Back button */}
+        <div className="flex-none">
+          <button 
+            onClick={onBackToLibrary}
+            className="p-2 rounded-full opacity-50 hover:opacity-100 hover:bg-black/5 hover:text-accent transition-all"
+            style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+            title="Back to Library"
+          >
+            <ArrowLeft size={18} />
+          </button>
+        </div>
+
+        {/* Center: Tabs */}
+        <div className="flex-1 flex justify-center gap-10">
+          <button 
+            onClick={() => setViewMode('toc')}
+            className={`font-title title-small ${viewMode === 'toc' ? 'text-accent' : 'text-muted'}`}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.95rem', whiteSpace: 'nowrap' }}
+          >
+            Contents
+          </button>
+          <button 
+            onClick={() => setViewMode('bookmarks')}
+            className={`font-title title-small ${viewMode === 'bookmarks' ? 'text-accent' : 'text-muted'}`}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.95rem', whiteSpace: 'nowrap' }}
+          >
+            Bookmarks ({bookmarks.length + highlights.length})
+          </button>
+        </div>
+
+        {/* Right: Profile Dropdown */}
+        <div className="flex-none flex items-center justify-end gap-3">
+          <div className="relative" ref={readerDropdownRef}>
+            <div 
+              className="flex items-center gap-2 group cursor-pointer hover:bg-black/5 p-1 px-2 rounded-full transition-all"
+              onClick={() => setShowDropdown(!showDropdown)}
+              title={user?.fullName || 'Profile'}
+            >
+              <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center text-[10px] font-bold text-accent border border-accent/30 lowercase">
+                {user?.username?.charAt(0) || 'u'}
+              </div>
+            </div>
+
+            <AnimatePresence>
+              {showDropdown && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 5, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 5, scale: 0.95 }}
+                  className="absolute top-full right-0 mt-2 w-48 bg-[#fcfaf2] border border-black/10 rounded shadow-xl z-50 p-2 flex flex-col gap-1"
+                  style={{ backgroundImage: 'url("https://www.transparenttextures.com/patterns/cream-paper.png")' }}
+                >
+                  <div className="px-3 py-2 border-b mb-1">
+                    <div className="text-[10px] font-bold text-accent uppercase tracking-wider">{user?.fullName}</div>
+                    <div className="text-[8px] opacity-40 uppercase tracking-widest mt-0.5">
+                      {user?.role || 'Reader'} Role
+                    </div>
+                  </div>
+                  
+                  {user?.role === 'admin' && (
+                    <button 
+                      onClick={() => { onAdminClick(); setShowDropdown(false); }}
+                      className="flex items-center gap-2 px-3 py-2 hover:bg-accent/5 text-accent rounded transition-colors text-left cursor-pointer"
+                    >
+                      <ShieldCheck size={14} />
+                      <span className="font-title text-[10px] uppercase tracking-widest font-bold">Admin Panel</span>
+                    </button>
+                  )}
+
+                  <button 
+                    onClick={() => {
+                      localStorage.removeItem('library_user');
+                      window.location.reload();
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 hover:bg-red-50 text-red-600/60 hover:text-red-600 rounded transition-colors text-left w-full cursor-pointer"
+                  >
+                    <LogOut size={14} />
+                    <span className="font-title text-[10px] uppercase tracking-widest font-bold">Exit Library</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </div>
-
-      <div className="flex justify-center gap-8 mb-8 border-b pb-4">
-         <button 
-           onClick={() => setViewMode('toc')}
-           className={`font-title title-small ${viewMode === 'toc' ? 'text-accent' : 'text-muted'}`}
-           style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-         >
-           Contents
-         </button>
-         <button 
-           onClick={() => setViewMode('highlights')}
-           className={`font-title title-small ${viewMode === 'highlights' ? 'text-accent' : 'text-muted'}`}
-           style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-         >
-           Highlights ({highlights.length})
-         </button>
-      </div>
       
       {viewMode === 'toc' ? (
-        <div className="flex flex-col gap-6 overflow-y-auto pr-2 custom-scrollbar">
-          {book.parts.map(part => (
+        <div className="flex flex-col gap-6">
+          {book.parts ? book.parts.map(part => (
             <div key={part.id}>
-               <h3 className="font-title title-small mb-2 text-accent">{part.name}</h3>
-               <ul className="flex flex-col gap-2">
-                 {part.chapters.map(ch => (
-                   <li 
-                     key={ch.id} 
-                     className={`nav-item ${activeChapterId === ch.id ? 'active' : ''}`}
-                     onClick={() => setActiveChapterId(ch.id)}
-                   >
-                     <span className="font-body text-body" style={{ fontSize: '1rem' }}>
-                      {ch.id}. {ch.title}
-                     </span>
-                     {activeChapterId === ch.id && <Bookmark size={16} color="var(--color-accent)" />}
-                   </li>
-                 ))}
-               </ul>
+                <h3 className="font-title title-small mb-2 text-accent">{part.name}</h3>
+                <ul className="flex flex-col gap-2">
+                  {part.chapters.map(ch => (
+                    <li 
+                      key={ch.id} 
+                      className={`nav-item ${activeChapterId === ch.id ? 'active' : ''}`}
+                      onClick={() => setActiveChapterId(ch.id)}
+                    >
+                      <span className="font-body text-body" style={{ fontSize: '1rem' }}>
+                       {ch.id}. {ch.title}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+             </div>
+          )) : (
+            <div>
+              <h3 className="font-title title-small mb-2 text-accent">Stories</h3>
+              <ul className="flex flex-col gap-2">
+                {allChapters.map(ch => (
+                  <li 
+                    key={ch.id} 
+                    className={`nav-item ${activeChapterId === ch.id ? 'active' : ''}`}
+                    onClick={() => setActiveChapterId(ch.id)}
+                  >
+                    <span className="font-body text-body" style={{ fontSize: '1rem' }}>
+                     {ch.title}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
-          ))}
+          )}
         </div>
       ) : (
-        <div className="flex flex-col gap-6 overflow-y-auto pr-2 custom-scrollbar">
-          <input 
-            type="text" 
-            placeholder="Search highlights..." 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-4 py-2 border-b border-black/10 bg-transparent font-body outline-none"
-            style={{ fontSize: '0.9rem', color: 'var(--color-ink)' }}
-          />
-          {highlights.filter(h => h.text.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
-             <p className="text-muted text-center italic mt-12">No highlights found.</p>
-          ) : (
-             highlights
-               .filter(h => h.text.toLowerCase().includes(searchQuery.toLowerCase()))
-               .map((h, i) => {
-                 const ch = allChapters.find(c => c.id === h.chapterId);
-                 const jumpAction = () => {
-                   setActiveChapterId(ch?.id || allChapters[0].id); 
-                   setViewMode('toc');
-                   setTimeout(() => {
-                     const el = document.getElementById(`mark-${h.id}`);
-                     if (el) {
-                       const container = el.closest('.page-right');
-                       if (container) {
-                          const offsetTop = el.offsetTop - container.offsetTop - (container.clientHeight / 2);
-                          container.scrollTo({ top: offsetTop, behavior: 'smooth' });
-                       }
-                       const oldBg = el.style.backgroundColor;
-                       el.style.transition = 'background-color 0.4s ease';
-                       el.style.backgroundColor = 'rgba(245, 158, 11, 0.7)';
-                       setTimeout(() => el.style.backgroundColor = oldBg, 800);
-                     }
-                   }, 500);
-                 };
+        <div className="flex flex-col gap-8">
+          <div className="flex items-center gap-2 border-b pb-2 mb-4">
+             <input 
+                type="text" 
+                placeholder="Search bookmarks & highlights..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-transparent font-body outline-none text-xs"
+                style={{ color: 'var(--color-ink)' }}
+             />
+          </div>
 
-                 return (
-                   <div key={h.id || i} className="mb-6 border-b border-black/5 pb-4 relative group">
-                      <p 
-                        className="font-hand text-accent pr-6 cursor-pointer hover:opacity-80 transition-opacity" 
-                        style={{ fontSize: '1.4rem', lineHeight: '1.3' }}
-                        onClick={jumpAction}
-                        title={`Jump to Chapter ${ch?.id}`}
-                      >
-                        “{h.text}”
-                      </p>
-                      <button 
-                        onClick={async () => {
-                          if (user && h.id) await highlightService.delete(h.id);
-                          setHighlights(highlights.filter(x => x !== h));
-                        }}
-                        className="absolute top-0 right-0 hover:text-red-800 transition-colors"
-                        title="Delete highlight"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.5rem', color: 'var(--color-muted)' }}
-                      >
-                        ×
-                      </button>
-                      <p 
-                         className="text-xs text-muted mt-2 uppercase tracking-widest cursor-pointer hover:text-accent font-bold" 
-                         onClick={jumpAction}
-                      >
-                         — Jump to Chapter {ch?.id}
-                      </p>
+          {allChapters
+            .filter(ch => bookmarks.some(b => b.chapterId === ch.id) || highlights.some(h => h.chapterId === ch.id))
+            .filter(ch => {
+                if (!searchQuery) return true;
+                const chapterMatches = ch.title.toLowerCase().includes(searchQuery.toLowerCase());
+                const highlightsMatch = highlights.some(h => h.chapterId === ch.id && h.text.toLowerCase().includes(searchQuery.toLowerCase()));
+                return chapterMatches || highlightsMatch;
+            })
+            .map(ch => {
+              const chHighlights = highlights.filter(h => h.chapterId === ch.id && (!searchQuery || h.text.toLowerCase().includes(searchQuery.toLowerCase())));
+              const isBookmarked = bookmarks.some(b => b.chapterId === ch.id);
+              
+              return (
+                <div key={ch.id} className="mb-6 px-1">
+                   <div 
+                      className="flex items-center justify-between group cursor-pointer hover:bg-black/5 p-2 rounded transition-colors"
+                      onClick={() => { setActiveChapterId(ch.id); }}
+                   >
+                      <div className="flex items-center gap-3">
+                         <span className="font-title font-bold text-sm">{ch.id}. {ch.title}</span>
+                      </div>
+                      <span className="text-[10px] uppercase tracking-tighter opacity-40 group-hover:opacity-100">{chHighlights.length} highlights</span>
                    </div>
-                 );
-               })
+
+                   {chHighlights.length > 0 && (
+                     <div className="mt-4 ml-6 border-l-2 border-accent/10 pl-6 flex flex-col gap-5">
+                        {chHighlights.map((h, i) => (
+                          <div key={h.id || i} className="relative group/h">
+                             <p 
+                                className="font-hand text-accent leading-tight text-lg cursor-pointer hover:opacity-80 pr-4"
+                                onClick={(e) => {
+                                   e.stopPropagation();
+                                   setActiveChapterId(ch.id); 
+                                   setTimeout(() => {
+                                     const el = document.getElementById(`mark-${h.id}`);
+                                     if (el) {
+                                       const container = el.closest('.page-right');
+                                       if (container) {
+                                          const offsetTop = el.offsetTop - container.offsetTop - (container.clientHeight / 2);
+                                          container.scrollTo({ top: offsetTop, behavior: 'smooth' });
+                                       }
+                                     }
+                                   }, 500);
+                                }}
+                             >
+                               “{h.text}”
+                             </p>
+                             <button 
+                               onClick={async (e) => {
+                                 e.stopPropagation();
+                                 if (user && h.id) await highlightService.delete(h.id);
+                                 setHighlights(highlights.filter(x => x !== h));
+                               }}
+                               className="absolute -right-1 top-0 opacity-0 group-hover/h:opacity-100 text-muted hover:text-red-600 transition-opacity"
+                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }}
+                             >
+                               ×
+                             </button>
+                          </div>
+                        ))}
+                     </div>
+                   )}
+                </div>
+              );
+            })
+          }
+          {allChapters.filter(ch => bookmarks.some(b => b.chapterId === ch.id) || highlights.some(h => h.chapterId === ch.id)).length === 0 && (
+             <p className="text-muted text-center italic mt-12">No bookmarks or highlights yet.</p>
           )}
         </div>
       )}
@@ -369,29 +591,36 @@ const OpenBook = ({ book, onBackToLibrary, user }) => {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         transition={{ duration: 0.4 }}
-        className="w-full h-full flex flex-col"
+        className="w-full"
       >
-         <div className="mb-8 border-b pb-4">
-           <div className="text-muted text-sm uppercase tracking-widest">{activeChapter.partName}</div>
-           <h1 className="font-title title-large mt-4" style={{ lineHeight: '1.2' }}>{activeChapter.title}</h1>
-           <p className="font-hand mt-4" style={{ fontSize: '1.5rem', color: 'var(--color-accent)' }}>
-             “{activeChapter.meta}”
-           </p>
-         </div>
-         
-         <div className="font-body text-body flex flex-col gap-4 chapter-body overflow-y-auto pr-2 custom-scrollbar">
-           {activeChapter.content ? (
-             activeChapter.content.map((p, i) => (
-               <p key={i} className="mb-4 text-justify" style={{ textIndent: '2rem', lineHeight: '2' }}>
-                  {renderWithHighlights(p, activeChapter.id)}
-               </p>
-             ))
-           ) : (
-             <p className="text-muted text-center mt-12 pt-12 italic">
-               ( The ink has faded on this memory... )
+          <div className="mb-8 border-b pb-4">
+             <div className="text-muted text-sm uppercase tracking-widest">{activeChapter.partName}</div>
+             <h1 className="font-title title-large mt-4" style={{ lineHeight: '1.2' }}>{activeChapter.title}</h1>
+             <p className="font-hand mt-4" style={{ fontSize: '1.5rem', color: 'var(--color-accent)' }}>
+               “{activeChapter.meta}”
              </p>
-           )}
-         </div>
+          </div>
+          
+          <div className="font-body text-body flex flex-col gap-4 chapter-body">
+            {/* Mobile ToC Toggle - Custom class for reliability */}
+            <div className="mobile-only-flex items-center justify-between mb-6 p-3 bg-accent/5 rounded-lg border border-accent/10 cursor-pointer" onClick={() => setIsMobileTocOpen(true)}>
+              <div className="flex items-center gap-2 text-accent font-title text-sm uppercase tracking-widest font-bold">
+                <Menu size={18} />
+                <span>Table of Contents</span>
+              </div>
+              <div className="text-[10px] opacity-40 uppercase tracking-tighter">Chapter {activeChapter.id}</div>
+            </div>
+
+            {activeChapter.content ? (
+              activeChapter.content.map((p, i) => (
+                <div key={i} className="mb-4 text-justify" style={{ textIndent: p.trim().startsWith('<') ? '0' : '2rem', lineHeight: '2' }}>
+                   {renderWithHighlights(p, activeChapter.id)}
+                </div>
+              ))
+            ) : (
+              <p className="italic text-muted center font-title mt-20 opacity-30">Archive empty...</p>
+            )}
+          </div>
       </motion.div>
     );
   };
@@ -439,7 +668,15 @@ const OpenBook = ({ book, onBackToLibrary, user }) => {
         </div>
        )}
 
-       <div className="book-page page-left">
+       <div className={`book-page page-left ${isMobileTocOpen ? 'mobile-visible' : 'mobile-hidden'}`}>
+          {/* Close button for mobile ToC */}
+          <button 
+            className="mobile-only-block absolute top-4 right-4 p-2 text-accent hover:bg-accent/5 rounded-full z-50 cursor-pointer"
+            onClick={() => setIsMobileTocOpen(false)}
+          >
+            <X size={24} />
+          </button>
+          
           {renderLeftPageContent()}
           <div className="page-number left">{leftPageNumber}</div>
        </div>
@@ -467,6 +704,20 @@ export default function App() {
   const [isOpen, setIsOpen] = useState(() => {
     return localStorage.getItem(`book_is_open_${activeBookSlug}`) === 'true';
   });
+
+  const [isAdminView, setIsAdminView] = useState(false);
+  const [books, setBooks] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    bookService.getAll().then(data => {
+        setBooks(data.length > 0 ? data : staticBooks);
+        setLoading(false);
+    }).catch(() => {
+        setBooks(staticBooks);
+        setLoading(false);
+    });
+  }, []);
 
   useEffect(() => {
     if (activeBookSlug) {
@@ -496,27 +747,20 @@ export default function App() {
     }} />;
   }
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center w-full h-screen text-accent font-title uppercase tracking-[0.4em] text-xs">
+        Preparing the library...
+      </div>
+    );
+  }
+
+  if (isAdminView && user?.role === 'admin') {
+    return <AdminPortal onBack={() => setIsAdminView(false)} />;
+  }
+
   return (
     <div style={{ perspective: '2000px', width: '100%', height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
-      <button 
-         onClick={handleLogout}
-         style={{
-            position: 'fixed',
-            top: '30px',
-            right: '30px',
-            zIndex: 1000,
-            padding: '12px',
-            backgroundColor: 'rgba(166, 58, 36, 0.1)',
-            borderRadius: '50%',
-            border: 'none',
-            cursor: 'pointer',
-            transition: 'all 0.3s'
-         }}
-         title="Logout"
-         className="hover-bright"
-      >
-        <LogOut color="var(--color-accent)" size={20} />
-      </button>
 
       <AnimatePresence mode="wait">
         {!activeBookSlug ? (
@@ -528,6 +772,8 @@ export default function App() {
           >
             <Library 
               user={user}
+              books={books}
+              onAdminClick={() => setIsAdminView(true)}
               onSelectBook={(slug) => {
                 setActiveBookSlug(slug);
                 setIsOpen(true); // Immediate open
@@ -545,6 +791,7 @@ export default function App() {
             key={`${activeBookSlug}-open`} 
             book={selectedBook} 
             user={user}
+            onAdminClick={() => setIsAdminView(true)}
             onBackToLibrary={() => {
               setActiveBookSlug(null);
               setIsOpen(false);
@@ -555,4 +802,3 @@ export default function App() {
     </div>
   );
 }
-

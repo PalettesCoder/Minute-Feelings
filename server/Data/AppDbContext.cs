@@ -11,6 +11,7 @@ namespace MinutefeelingAPI.Data
         public DbSet<Book> Books { get; set; }
         public DbSet<Chapter> Chapters { get; set; }
         public DbSet<Highlight> Highlights { get; set; }
+        public DbSet<UserBookmark> Bookmarks { get; set; }
         public DbSet<OtpCode> OtpCodes { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)

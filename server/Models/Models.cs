@@ -13,6 +13,8 @@ namespace MinutefeelingAPI.Models
         public string? Hobbies { get; set; }
         public string? PhoneNumber { get; set; }
         public string? Email { get; set; }
+        public string? Password { get; set; } // Only for admins
+        public string? Role { get; set; } // "admin" or null/user
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public ICollection<Highlight> Highlights { get; set; }
     }
@@ -49,6 +51,15 @@ namespace MinutefeelingAPI.Models
         public int ChapterId { get; set; }
         [Required]
         public string Text { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public User User { get; set; }
+    }
+
+    public class UserBookmark
+    {
+        public int Id { get; set; }
+        public int UserId { get; set; }
+        public int ChapterId { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public User User { get; set; }
     }

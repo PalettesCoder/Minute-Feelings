@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MinutefeelingAPI.Data;
+using MinutefeelingAPI.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -33,6 +34,24 @@ using (var scope = app.Services.CreateScope())
     // This will create the DB and tables if they don't exist
     // Useful for quick testing when migrations aren't applied.
     db.Database.EnsureCreated();
+
+    // SEED ADMIN USER
+    var adminEmail = builder.Configuration["AdminSettings:Email"];
+    var adminPassword = builder.Configuration["AdminSettings:Password"];
+
+    if (!string.IsNullOrEmpty(adminEmail) && !db.Users.Any(u => u.Email == adminEmail))
+    {
+        db.Users.Add(new User 
+        { 
+            Email = adminEmail, 
+            Password = adminPassword, 
+            Role = "admin", 
+            Username = adminEmail.Split('@')[0], 
+            FullName = "Administrator",
+            CreatedAt = DateTime.UtcNow
+        });
+        db.SaveChanges();
+    }
 }
 
 app.UseCors("AllowVite");

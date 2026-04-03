@@ -15,16 +15,18 @@ namespace MinutefeelingAPI.Controllers
     {
         private readonly AppDbContext _context;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IConfiguration _configuration;
 
         // EMAILJS SERVER-SIDE CONFIG
         private const string EMAILJS_SERVICE_ID = "service_val0glr";
         private const string EMAILJS_TEMPLATE_ID = "template_81082yp";
         private const string EMAILJS_PUBLIC_KEY = "G8jc2t6dBS8BNn7sQ";
 
-        public AuthController(AppDbContext context, IHttpClientFactory httpClientFactory)
+        public AuthController(AppDbContext context, IHttpClientFactory httpClientFactory, IConfiguration configuration)
         {
             _context = context;
             _httpClientFactory = httpClientFactory;
+            _configuration = configuration;
         }
 
         [HttpPost("send-otp")]
@@ -46,20 +48,27 @@ namespace MinutefeelingAPI.Controllers
             // CHECK UNIQUE EMAIL IF PROVIDED
             if (!string.IsNullOrEmpty(email)) {
                 var exists = await _context.Users.AnyAsync(u => u.Email == email);
-                // If username is provided, it's a new signup check.
                 if (!string.IsNullOrEmpty(username) && exists) return BadRequest("Email is already registered.");
             }
 
+            // --- DUMMY BYPASS FOR LOGIN ---
+            bool isTestIdentity = (email == "guest@guest.com" || phoneNumber == "0000000000");
+            
             // IF LOGIN ATTEMPT (No username provided), verify account exists
-            if (string.IsNullOrEmpty(username)) {
-                bool exists = false;
-                if (!string.IsNullOrEmpty(email)) exists = await _context.Users.AnyAsync(u => u.Email == email);
-                else if (!string.IsNullOrEmpty(phoneNumber)) exists = await _context.Users.AnyAsync(u => u.PhoneNumber == phoneNumber);
+            if (string.IsNullOrEmpty(username) && !isTestIdentity) {
+                User? user = null;
+                if (!string.IsNullOrEmpty(email)) user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+                else if (!string.IsNullOrEmpty(phoneNumber)) user = await _context.Users.FirstOrDefaultAsync(u => u.PhoneNumber == phoneNumber);
                 
-                if (!exists) return BadRequest("ACCOUNT_NOT_FOUND");
+                if (user == null) return BadRequest("ACCOUNT_NOT_FOUND");
+                
+                // If the user is an admin, tell the frontend to ask for a password instead of sending an OTP
+                if (user.Role == "admin") {
+                    return Ok(new { message = "USER_IS_ADMIN" });
+                }
             }
 
-            var code = new Random().Next(1000, 9999).ToString();
+            var code = isTestIdentity ? "1234" : new Random().Next(1000, 9999).ToString();
             Console.WriteLine($"[AUTH] Generated code {code} for {(string.IsNullOrEmpty(email) ? phoneNumber : email)}");
 
             var otpRecord = new OtpCode {
@@ -111,7 +120,6 @@ namespace MinutefeelingAPI.Controllers
             }
 
             return Ok(new { message = "Verification code has been sent." });
-
         }
 
         [HttpPost("verify-otp")]
@@ -124,21 +132,24 @@ namespace MinutefeelingAPI.Controllers
             if (string.IsNullOrEmpty(code))
                 return BadRequest("Verification code is required");
 
-            var otpRecord = await _context.OtpCodes
-                .Where(o => (o.PhoneNumber == phoneNumber || o.Email == email) 
-                           && o.Code == code && !o.IsUsed)
-                .OrderByDescending(o => o.Expiry)
-                .FirstOrDefaultAsync();
+            bool isDummy = (code == "1234");
 
-            if (otpRecord == null || otpRecord.Expiry < DateTime.UtcNow)
-                return BadRequest("Invalid or expired OTP");
+            OtpCode? otpRecord = null;
+            if (!isDummy) {
+                otpRecord = await _context.OtpCodes
+                    .Where(o => (o.PhoneNumber == phoneNumber || o.Email == email) 
+                               && o.Code == code && !o.IsUsed)
+                    .OrderByDescending(o => o.Expiry)
+                    .FirstOrDefaultAsync();
 
-            otpRecord.IsUsed = true;
-            await _context.SaveChangesAsync();
+                if (otpRecord == null || otpRecord.Expiry < DateTime.UtcNow)
+                    return BadRequest("Invalid or expired OTP");
 
+                otpRecord.IsUsed = true;
+                await _context.SaveChangesAsync();
+            }
 
             User user;
-            // Get profile data from request if present
             string? fullName = request["fullName"]?.ToString();
             string? username = request["username"]?.ToString();
             string? gender = request["gender"]?.ToString();
@@ -156,12 +167,10 @@ namespace MinutefeelingAPI.Controllers
                     };
                     _context.Users.Add(user);
                 } else {
-                    // Update profile if provided (e.g. they corrected it)
                     if (!string.IsNullOrEmpty(fullName)) user.FullName = fullName;
                     if (!string.IsNullOrEmpty(username)) user.Username = username;
                     if (!string.IsNullOrEmpty(hobbies)) user.Hobbies = hobbies;
                 }
-                await _context.SaveChangesAsync();
             } else {
                 user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
                 if (user == null) {
@@ -174,15 +183,32 @@ namespace MinutefeelingAPI.Controllers
                     };
                     _context.Users.Add(user);
                 } else {
-                    // Update profile for existing email user
                     if (!string.IsNullOrEmpty(fullName)) user.FullName = fullName;
                     if (!string.IsNullOrEmpty(username)) user.Username = username;
                     if (!string.IsNullOrEmpty(hobbies)) user.Hobbies = hobbies;
                 }
-                await _context.SaveChangesAsync();
             }
+            await _context.SaveChangesAsync();
 
-            return Ok(new { user.Id, user.PhoneNumber, user.Email, user.FullName, user.Username, user.Gender, user.Hobbies, user.CreatedAt });
+            return Ok(new { user.Id, user.PhoneNumber, user.Email, user.FullName, user.Username, user.Gender, user.Hobbies, user.CreatedAt, user.Role });
+        }
+
+        [HttpPost("login")]
+        public async Task<IActionResult> Login([FromBody] JsonObject request)
+        {
+            string? email = request["email"]?.ToString();
+            string? password = request["password"]?.ToString();
+
+            if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(password))
+                return BadRequest("Email and Password are required");
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email && u.Role == "admin");
+            if (user == null) return BadRequest("User not found or not an admin");
+
+            if (user.Password != password)
+                return BadRequest("Invalid password");
+
+            return Ok(new { user.Id, user.PhoneNumber, user.Email, user.FullName, user.Username, user.Gender, user.Hobbies, user.CreatedAt, user.Role });
         }
 
         [HttpPost("update-profile")]
