@@ -4,9 +4,9 @@ using MinutefeelingAPI.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Use SQLite for zero-config local development
+// Use SQLite for zero-config local development and portable cloud hosting
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(@"Data Source=C:\Users\harsha.singiri\OneDrive - Acuvate Software Private Limited\Harsha Documents\Minutefeeling\server\library_v3.db"));
+    options.UseSqlite("Data Source=library_v3.db"));
 
 
 builder.Services.AddControllers()
@@ -36,17 +36,17 @@ using (var scope = app.Services.CreateScope())
     db.Database.EnsureCreated();
 
     // SEED ADMIN USER
-    var adminEmail = builder.Configuration["AdminSettings:Email"];
-    var adminPassword = builder.Configuration["AdminSettings:Password"];
+    var adminEmail = builder.Configuration["AdminSettings:Email"] ?? "palettescoder@gmail.com";
+    var adminPassword = builder.Configuration["AdminSettings:Password"] ?? "Slr@2233";
 
-    if (!string.IsNullOrEmpty(adminEmail) && !db.Users.Any(u => u.Email == adminEmail))
+    if (!db.Users.Any(u => u.Email == adminEmail))
     {
         db.Users.Add(new User 
         { 
             Email = adminEmail, 
             Password = adminPassword, 
             Role = "admin", 
-            Username = adminEmail.Split('@')[0], 
+            Username = "palettescoder", 
             FullName = "Administrator",
             CreatedAt = DateTime.UtcNow
         });
