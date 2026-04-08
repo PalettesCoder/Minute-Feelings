@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bookmark, ChevronRight, Library as LibraryIcon, ArrowLeft, LogOut, ShieldCheck, User as UserIcon, ChevronDown, Menu, X, Search, Sparkles } from 'lucide-react';
+import { Bookmark, ChevronRight, ChevronLeft, Library as LibraryIcon, ArrowLeft, LogOut, ShieldCheck, User as UserIcon, ChevronDown, Menu, X, Search, Sparkles } from 'lucide-react';
+import HTMLFlipBook from 'react-pageflip';
 import { books as staticBooks } from './data/chapters';
 import LoginPage from './components/LoginPage';
 import AdminPortal from './components/AdminPortal';
@@ -175,8 +176,15 @@ const BookCover = ({ book, onOpen }) => {
   );
 };
 
+const FlipPage = React.forwardRef(({ children }, ref) => {
+  return <div ref={ref} className="flip-page-content">{children}</div>;
+});
+
+FlipPage.displayName = 'FlipPage';
+
 const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
   const [isMobileTocOpen, setIsMobileTocOpen] = useState(false);
+  const flipBookRef = useRef(null);
   
   if (!book) {
     return (
@@ -189,16 +197,29 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
   // Combine parts and chapters into a flat list for navigation
   // Handle both static parts structure and API flat chapters structure
   const allChapters = book.parts 
-    ? book.parts.flatMap(p => p.chapters.map(c => ({...c, partName: p.name})))
-    : (book.chapters || []).map(c => ({
+    ? book.parts.flatMap((p, partIndex) => p.chapters.map((c, chapterIndex) => ({
+        ...c,
+        partName: p.name,
+        chapterKey: `part-${p.id ?? partIndex}-chapter-${chapterIndex}-${c.id ?? chapterIndex}`
+      })))
+    : (book.chapters || []).map((c, chapterIndex) => ({
         ...c, 
         partName: "Stories", 
+        chapterKey: `stories-chapter-${chapterIndex}-${c.id ?? chapterIndex}`,
         content: typeof c.contentJson === 'string' ? JSON.parse(c.contentJson) : c.content
       }));
   
-  const [activeChapterId, setActiveChapterId] = useState(() => {
-    const saved = localStorage.getItem(`last_read_chapter_${book.slug}`);
-    return saved ? parseInt(saved) : allChapters[0]?.id || 0;
+  const [activeChapterKey, setActiveChapterKey] = useState(() => {
+    const savedKey = localStorage.getItem(`last_read_chapter_key_${book.slug}`);
+    if (savedKey && allChapters.some(c => c.chapterKey === savedKey)) return savedKey;
+
+    const savedId = localStorage.getItem(`last_read_chapter_${book.slug}`);
+    if (savedId) {
+      const matchedChapter = allChapters.find(c => c.id === parseInt(savedId));
+      if (matchedChapter) return matchedChapter.chapterKey;
+    }
+
+    return allChapters[0]?.chapterKey || '';
   });
   
   const [viewMode, setViewMode] = useState('toc');
@@ -221,7 +242,68 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
     return saved ? JSON.parse(saved) : [];
   });
   const [selection, setSelection] = useState({ text: '', visible: false, x: 0, y: 0 });
+  const selectionRangeRef = useRef(null);
+  const suppressSelectionRestoreRef = useRef(false);
   const [bookmarks, setBookmarks] = useState([]);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
+
+  const activeChapter = allChapters.find(c => c.chapterKey === activeChapterKey) || allChapters[0];
+  const activeChapterId = activeChapter?.id ?? 0;
+
+  const jumpToPage = (targetPage) => {
+    const flipApi = getFlipApi();
+    if (!flipApi || targetPage === undefined || targetPage < 0) {
+      return;
+    }
+
+    const fromIndex = typeof flipApi.getCurrentPageIndex === 'function'
+      ? flipApi.getCurrentPageIndex()
+      : currentPageIndex;
+
+    if (fromIndex === targetPage) {
+      setCurrentPageIndex(targetPage);
+      return;
+    }
+
+    if (typeof flipApi.flip === 'function') {
+      flipApi.flip(targetPage, 'top');
+      setTimeout(() => {
+        const afterIndex = typeof flipApi.getCurrentPageIndex === 'function'
+          ? flipApi.getCurrentPageIndex()
+          : fromIndex;
+        if (afterIndex === fromIndex && typeof flipApi.turnToPage === 'function') {
+          flipApi.turnToPage(targetPage);
+          setCurrentPageIndex(targetPage);
+        }
+      }, 200);
+    } else if (typeof flipApi.turnToPage === 'function') {
+      flipApi.turnToPage(targetPage);
+      setCurrentPageIndex(targetPage);
+    }
+  };
+
+  const restoreSavedSelection = () => {
+    try {
+      if (suppressSelectionRestoreRef.current) return false;
+      if (!selectionRangeRef.current) return false;
+      const browserSelection = window.getSelection();
+      if (!browserSelection) return false;
+      browserSelection.removeAllRanges();
+      browserSelection.addRange(selectionRangeRef.current);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const getFlipApi = () => {
+    const ref = flipBookRef.current;
+    if (!ref) return null;
+    if (typeof ref.pageFlip === 'function') return ref.pageFlip();
+    if (ref.pageFlip) return ref.pageFlip;
+    if (typeof ref.getPageFlip === 'function') return ref.getPageFlip();
+    return null;
+  };
 
   useEffect(() => {
     if (user) {
@@ -249,8 +331,9 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
   }, [highlights, book.slug, user]);
 
   useEffect(() => {
+    localStorage.setItem(`last_read_chapter_key_${book.slug}`, activeChapterKey);
     localStorage.setItem(`last_read_chapter_${book.slug}`, activeChapterId.toString());
-  }, [activeChapterId, book.slug]);
+  }, [activeChapterKey, activeChapterId, book.slug]);
 
   useEffect(() => {
     const handleMouseUp = (e) => {
@@ -259,45 +342,90 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
 
       // Small delay to ensure the browser's selection is fully updated
       setTimeout(() => {
-        const selection = window.getSelection();
-        const selectedText = selection.toString().trim();
+        const browserSelection = window.getSelection();
+        const selectedText = browserSelection.toString().trim();
         
         if (selectedText && selectedText.length > 2) {
           try {
-            const range = selection.getRangeAt(0);
+            const range = browserSelection.getRangeAt(0);
             const rect = range.getBoundingClientRect();
             
             // Ensure we're highlighting in the right page content area
-            const isInsideReader = e.target.closest('.page-right');
+            const isInsideReader = e.target.closest('.flip-page-content');
             
             if (isInsideReader) {
+              suppressSelectionRestoreRef.current = false;
+              selectionRangeRef.current = range.cloneRange();
               setSelection({
                 text: selectedText,
                 x: rect.left + rect.width / 2,
                 y: rect.top - 10,
                 visible: true
               });
-            } else {
+            } else if (!selection.visible) {
               setSelection(s => ({ ...s, visible: false }));
             }
           } catch (err) {
             console.error("Selection error:", err);
           }
         } else {
-          setSelection(s => ({ ...s, visible: false }));
+          const clickedOutsideReader = !e.target.closest('.flip-page-content') && !e.target.closest('.reader-toolbar');
+          if (clickedOutsideReader) {
+            suppressSelectionRestoreRef.current = true;
+            selectionRangeRef.current = null;
+            setSelection(s => ({ ...s, visible: false }));
+          } else if (selection.visible && selectionRangeRef.current && !suppressSelectionRestoreRef.current) {
+            setTimeout(() => {
+              restoreSavedSelection();
+            }, 0);
+          }
         }
       }, 50);
     };
+
+    const handleSelectionChange = () => {
+      if (!selection.visible || !selectionRangeRef.current || suppressSelectionRestoreRef.current) return;
+      const currentText = window.getSelection()?.toString().trim() || '';
+      if (!currentText) {
+        setTimeout(() => {
+          restoreSavedSelection();
+        }, 0);
+      }
+    };
     
     document.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('keyup', handleMouseUp); // Also handle keyboard selection
+    document.addEventListener('selectionchange', handleSelectionChange);
     return () => {
       document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('keyup', handleMouseUp);
+      document.removeEventListener('selectionchange', handleSelectionChange);
     };
-  }, []);
+  }, [selection.visible]);
+
+  useEffect(() => {
+    const handleOutsideDismiss = (e) => {
+      if (!selection.visible) return;
+
+      const clickedTooltip = e.target.closest('.highlight-tooltip');
+
+      if (!clickedTooltip) {
+        suppressSelectionRestoreRef.current = true;
+        selectionRangeRef.current = null;
+        window.getSelection().removeAllRanges();
+        setSelection({ text: '', visible: false, x: 0, y: 0 });
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideDismiss);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideDismiss);
+    };
+  }, [selection.visible]);
 
   const saveHighlight = async () => {
+    // Restore the captured range so highlight save works even if the browser collapsed selection on click.
+    suppressSelectionRestoreRef.current = false;
+    restoreSavedSelection();
+
     if (selection.text) {
       if (highlights.some(h => h.text === selection.text)) {
         const hToDelete = highlights.find(h => h.text === selection.text);
@@ -312,15 +440,143 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
         setHighlights([newH, ...highlights]);
       }
     }
+    window.getSelection().removeAllRanges();
+    suppressSelectionRestoreRef.current = true;
+    selectionRangeRef.current = null;
     setSelection({ ...selection, visible: false });
   };
-  const activeChapter = allChapters.find(c => c.id === activeChapterId) || allChapters[0];
-  const leftPageNumber = activeChapter.id * 2 - 1;
-  const rightPageNumber = activeChapter.id * 2;
+
+  const getChapterParagraphs = (chapter) => {
+    if (Array.isArray(chapter.content) && chapter.content.length > 0) {
+      return chapter.content;
+    }
+
+    return [
+      `This chapter is being prepared for the archive. ${chapter.meta || 'Please check back soon for the full story.'}`,
+      'Use the Contents and Bookmarks panel to continue reading available chapters.'
+    ];
+  };
+
+  const paginateParagraphs = (paragraphs, maxChars = 1400) => {
+    const pages = [];
+    let currentPage = [];
+    let currentSize = 0;
+
+    for (const paragraph of paragraphs) {
+      const text = String(paragraph || '');
+      const plainLength = text.replace(/<[^>]*>/g, '').trim().length;
+      const weightedLength = Math.max(plainLength, 120);
+
+      if (currentPage.length > 0 && currentSize + weightedLength > maxChars) {
+        pages.push(currentPage);
+        currentPage = [];
+        currentSize = 0;
+      }
+
+      currentPage.push(text);
+      currentSize += weightedLength;
+    }
+
+    if (currentPage.length > 0) {
+      pages.push(currentPage);
+    }
+
+    return pages;
+  };
+
+  const pagedChapters = allChapters.flatMap((chapter) => {
+    const pages = paginateParagraphs(getChapterParagraphs(chapter));
+    return pages.map((pageContent, pageIndex) => ({
+      ...chapter,
+      pageKey: `${chapter.id}-${pageIndex}`,
+      pageIndex,
+      content: pageContent
+    }));
+  });
+
+  const chapterStartPages = pagedChapters.reduce((acc, page, index) => {
+    if (acc[page.chapterKey] === undefined) {
+      acc[page.chapterKey] = index;
+    }
+    return acc;
+  }, {});
+
+  const activeChapterPageIndex = chapterStartPages[activeChapterKey] ?? 0;
+  const rightPageNumber = currentPageIndex + 1;
+
+  useEffect(() => {
+    const flipApi = getFlipApi();
+    if (!flipApi) return;
+
+    const currentIndex = flipApi.getCurrentPageIndex();
+    if (currentIndex !== activeChapterPageIndex) {
+      jumpToPage(activeChapterPageIndex);
+    }
+  }, [activeChapterPageIndex]);
+
+  const flipToChapter = (chapterKey) => {
+    if (!chapterKey) return;
+    setActiveChapterKey(chapterKey);
+    setIsMobileTocOpen(false);
+  };
+
+  const handleFlip = (e) => {
+    const nextIndex = e?.data ?? 0;
+    setCurrentPageIndex(nextIndex);
+    const nextChapter = pagedChapters[nextIndex];
+    if (nextChapter && nextChapter.chapterKey !== activeChapterKey) {
+      setActiveChapterKey(nextChapter.chapterKey);
+    }
+  };
+
+  const goToPreviousPage = () => {
+    const flipApi = getFlipApi();
+    if (!flipApi) {
+      setCurrentPageIndex((p) => Math.max(0, p - 1));
+      return;
+    }
+
+    if (typeof flipApi.flipPrev === 'function') {
+      flipApi.flipPrev('top');
+    } else if (typeof flipApi.turnToPrevPage === 'function') {
+      flipApi.turnToPrevPage();
+    } else if (typeof flipApi.turnToPage === 'function') {
+      flipApi.turnToPage(Math.max(0, currentPageIndex - 1));
+    }
+
+    setTimeout(() => {
+      if (typeof flipApi.getCurrentPageIndex === 'function') {
+        setCurrentPageIndex(flipApi.getCurrentPageIndex());
+      }
+    }, 50);
+  };
+
+  const goToNextPage = () => {
+    const flipApi = getFlipApi();
+    if (!flipApi) {
+      setCurrentPageIndex((p) => Math.min(pagedChapters.length - 1, p + 1));
+      return;
+    }
+
+    if (typeof flipApi.flipNext === 'function') {
+      flipApi.flipNext('top');
+    } else if (typeof flipApi.turnToNextPage === 'function') {
+      flipApi.turnToNextPage();
+    } else if (typeof flipApi.turnToPage === 'function') {
+      flipApi.turnToPage(Math.min(pagedChapters.length - 1, currentPageIndex + 1));
+    }
+
+    setTimeout(() => {
+      if (typeof flipApi.getCurrentPageIndex === 'function') {
+        setCurrentPageIndex(flipApi.getCurrentPageIndex());
+      }
+    }, 50);
+  };
 
   const renderWithHighlights = (text, chapterId) => {
     if (!text) return '';
     const chapterHighlights = highlights.filter(h => h.chapterId === chapterId);
+    const pendingSelectionText = selection.visible && chapterId === activeChapterId ? selection.text : '';
     
     // If it looks like HTML (from the new rich editor), we render it directly
     // Note: highlighting inside rich text is complex, so we prioritize the rich formatting for now
@@ -328,10 +584,16 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
       return <div dangerouslySetInnerHTML={{ __html: text }} className="rich-content" />;
     }
 
-    if (chapterHighlights.length === 0) return text;
+    if (chapterHighlights.length === 0 && !pendingSelectionText) return text;
 
-    const escapedTexts = chapterHighlights
-      .map(h => h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    const allHighlightTexts = [
+      ...chapterHighlights.map(h => ({ text: h.text, id: h.id, type: 'saved' })),
+      ...(pendingSelectionText ? [{ text: pendingSelectionText, id: 'pending', type: 'pending' }] : [])
+    ];
+
+    const escapedTexts = allHighlightTexts
+      .map(h => h.text)
+      .map(h => h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
       .sort((a, b) => b.length - a.length);
 
     if (escapedTexts.length === 0) return text;
@@ -340,18 +602,18 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
     const parts = String(text).split(regex);
 
     return parts.map((part, i) => {
-      const match = chapterHighlights.find(h => h.text === part);
+      const match = allHighlightTexts.find(h => h.text === part);
       if (match) {
         return (
           <mark 
             key={i} 
-            id={`mark-${match.id}`}
+            id={match.type === 'saved' ? `mark-${match.id}` : undefined}
             style={{ 
-              backgroundColor: 'rgba(245, 158, 11, 0.25)', 
+              backgroundColor: match.type === 'pending' ? 'rgba(244, 114, 182, 0.22)' : 'rgba(245, 158, 11, 0.25)', 
               color: 'inherit',
               borderRadius: '4px',
               padding: '2px 0px',
-              boxShadow: '0 0 8px rgba(245, 158, 11, 0.1)'
+              boxShadow: match.type === 'pending' ? '0 0 0 1px rgba(244, 114, 182, 0.35)' : '0 0 8px rgba(245, 158, 11, 0.1)'
             }}
           >
             {part}
@@ -463,11 +725,13 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
             <div key={part.id}>
                 <h3 className="font-title title-small mb-2 text-accent">{part.name}</h3>
                 <ul className="flex flex-col gap-2">
-                  {part.chapters.map(ch => (
+                  {allChapters
+                    .filter(ch => ch.partName === part.name)
+                    .map(ch => (
                     <li 
-                      key={ch.id} 
-                      className={`nav-item ${activeChapterId === ch.id ? 'active' : ''}`}
-                      onClick={() => setActiveChapterId(ch.id)}
+                      key={ch.chapterKey} 
+                      className={`nav-item ${activeChapterKey === ch.chapterKey ? 'active' : ''}`}
+                      onClick={() => flipToChapter(ch.chapterKey)}
                     >
                       <span className="font-body text-body" style={{ fontSize: '1rem' }}>
                        {ch.id}. {ch.title}
@@ -483,8 +747,8 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
                 {allChapters.map(ch => (
                   <li 
                     key={ch.id} 
-                    className={`nav-item ${activeChapterId === ch.id ? 'active' : ''}`}
-                    onClick={() => setActiveChapterId(ch.id)}
+                    className={`nav-item ${activeChapterKey === ch.chapterKey ? 'active' : ''}`}
+                    onClick={() => flipToChapter(ch.chapterKey)}
                   >
                     <span className="font-body text-body" style={{ fontSize: '1rem' }}>
                      {ch.title}
@@ -524,7 +788,7 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
                 <div key={ch.id} className="mb-6 px-1">
                    <div 
                       className="flex items-center justify-between group cursor-pointer hover:bg-black/5 p-2 rounded transition-colors"
-                      onClick={() => { setActiveChapterId(ch.id); }}
+                     onClick={() => flipToChapter(ch.chapterKey)}
                    >
                       <div className="flex items-center gap-3">
                          <span className="font-title font-bold text-sm">{ch.id}. {ch.title}</span>
@@ -540,11 +804,11 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
                                 className="font-hand text-accent leading-tight text-lg cursor-pointer hover:opacity-80 pr-4"
                                 onClick={(e) => {
                                    e.stopPropagation();
-                                   setActiveChapterId(ch.id); 
+                                   flipToChapter(ch.chapterKey);
                                    setTimeout(() => {
                                      const el = document.getElementById(`mark-${h.id}`);
                                      if (el) {
-                                       const container = el.closest('.page-right');
+                                      const container = el.closest('.flip-page-content');
                                        if (container) {
                                           const offsetTop = el.offsetTop - container.offsetTop - (container.clientHeight / 2);
                                           container.scrollTo({ top: offsetTop, behavior: 'smooth' });
@@ -582,44 +846,34 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
     </motion.div>
   );
 
-  // Render Chapter Content (Right Page)
-  const renderChapterContent = () => {
+  const renderChapterPageContent = (chapter) => {
+    const isChapterStartPage = chapter.pageIndex === 0;
+
     return (
       <motion.div 
-        key={activeChapter.id}
+        key={chapter.id}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         transition={{ duration: 0.4 }}
-        className="w-full"
+        className="w-full h-full flex flex-col"
       >
-          <div className="mb-8 border-b pb-4">
-             <div className="text-muted text-sm uppercase tracking-widest">{activeChapter.partName}</div>
-             <h1 className="font-title title-large mt-4" style={{ lineHeight: '1.2' }}>{activeChapter.title}</h1>
-             <p className="font-hand mt-4" style={{ fontSize: '1.5rem', color: 'var(--color-accent)' }}>
-               “{activeChapter.meta}”
-             </p>
-          </div>
+          {isChapterStartPage && (
+            <div className="mb-8 border-b pb-4">
+              <div className="text-muted text-sm uppercase tracking-widest">{chapter.partName}</div>
+              <h1 className="font-title title-large mt-4" style={{ lineHeight: '1.2' }}>{chapter.title}</h1>
+              <p className="font-hand mt-4" style={{ fontSize: '1.5rem', color: 'var(--color-accent)' }}>
+                “{chapter.meta}”
+              </p>
+            </div>
+          )}
           
           <div className="font-body text-body flex flex-col gap-4 chapter-body">
-            {/* Mobile ToC Toggle - Custom class for reliability */}
-            <div className="mobile-only-flex items-center justify-between mb-6 p-3 bg-accent/5 rounded-lg border border-accent/10 cursor-pointer" onClick={() => setIsMobileTocOpen(true)}>
-              <div className="flex items-center gap-2 text-accent font-title text-sm uppercase tracking-widest font-bold">
-                <Menu size={18} />
-                <span>Table of Contents</span>
+            {chapter.content.map((p, i) => (
+              <div key={i} className="mb-4 text-justify" style={{ textIndent: p.trim().startsWith('<') ? '0' : '2rem', lineHeight: '2' }}>
+                 {renderWithHighlights(p, chapter.id)}
               </div>
-              <div className="text-[10px] opacity-40 uppercase tracking-tighter">Chapter {activeChapter.id}</div>
-            </div>
-
-            {activeChapter.content ? (
-              activeChapter.content.map((p, i) => (
-                <div key={i} className="mb-4 text-justify" style={{ textIndent: p.trim().startsWith('<') ? '0' : '2rem', lineHeight: '2' }}>
-                   {renderWithHighlights(p, activeChapter.id)}
-                </div>
-              ))
-            ) : (
-              <p className="italic text-muted center font-title mt-20 opacity-30">Archive empty...</p>
-            )}
+            ))}
           </div>
       </motion.div>
     );
@@ -647,6 +901,7 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
           }}
         >
           <button 
+            onMouseDown={(e) => e.preventDefault()}
             onClick={saveHighlight}
             style={{
                background: highlights.some(h => h.text === selection.text) ? '#8b3a3a' : 'var(--color-accent)',
@@ -668,24 +923,84 @@ const OpenBook = ({ book, onBackToLibrary, user, onAdminClick }) => {
         </div>
        )}
 
-       <div className={`book-page page-left ${isMobileTocOpen ? 'mobile-visible' : 'mobile-hidden'}`}>
-          {/* Close button for mobile ToC */}
-          <button 
-            className="mobile-only-block absolute top-4 right-4 p-2 text-accent hover:bg-accent/5 rounded-full z-50 cursor-pointer"
+       <div className={`reader-drawer ${isMobileTocOpen ? 'open' : ''}`}>
+          <button
+            className="absolute top-4 right-4 p-2 text-accent hover:bg-accent/5 rounded-full z-50 cursor-pointer"
             onClick={() => setIsMobileTocOpen(false)}
           >
             <X size={24} />
           </button>
-          
           {renderLeftPageContent()}
-          <div className="page-number left">{leftPageNumber}</div>
        </div>
 
-       <div className="book-page page-right">
-          <AnimatePresence mode="wait">
-            {renderChapterContent()}
-          </AnimatePresence>
-          <div className="page-number right">{rightPageNumber}</div>
+       {isMobileTocOpen && <div className="reader-backdrop" onClick={() => setIsMobileTocOpen(false)} />}
+
+       <div className="book-page page-full">
+          <div className="reader-toolbar">
+            <button
+              className="reader-toolbar-section reader-toolbar-left"
+              onClick={() => setIsMobileTocOpen(true)}
+            >
+              <div className="flex items-center gap-2 text-accent font-title text-sm uppercase tracking-widest font-bold">
+              <Menu size={18} />
+              <span>Contents and Bookmarks</span>
+              </div>
+            </button>
+
+            <div className="reader-toolbar-section reader-toolbar-middle">
+              <button
+                type="button"
+                className="page-arrow"
+                onClick={(e) => { e.stopPropagation(); goToPreviousPage(); }}
+                aria-label="Previous page"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <button
+                type="button"
+                className="page-arrow"
+                onClick={(e) => { e.stopPropagation(); goToNextPage(); }}
+                aria-label="Next page"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+
+            <div className="reader-toolbar-section reader-toolbar-right text-[10px] opacity-40 uppercase tracking-tighter">Chapter {activeChapter.id}</div>
+          </div>
+
+          <div className="flip-book-wrapper">
+            <HTMLFlipBook
+              width={1120}
+              height={740}
+              minWidth={280}
+              maxWidth={1600}
+              minHeight={420}
+              maxHeight={900}
+              size="stretch"
+              drawShadow={true}
+              maxShadowOpacity={0.55}
+              flippingTime={900}
+              startZIndex={10}
+              showPageCorners={true}
+              showCover={false}
+              mobileScrollSupport={true}
+              usePortrait={true}
+              useMouseEvents={false}
+              disableFlipByClick={true}
+              ref={flipBookRef}
+              onFlip={handleFlip}
+              onInit={() => setCurrentPageIndex(0)}
+              className="flip-book"
+            >
+              {pagedChapters.map((chapterPage) => (
+                <FlipPage key={chapterPage.pageKey}>
+                  {renderChapterPageContent(chapterPage)}
+                </FlipPage>
+              ))}
+            </HTMLFlipBook>
+          </div>
+           <div className="page-number right">{rightPageNumber}</div>
        </div>
     </motion.div>
   );

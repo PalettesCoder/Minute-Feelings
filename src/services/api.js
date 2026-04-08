@@ -1,4 +1,17 @@
 import axios from 'axios';
+import {
+    addDoc,
+    collection,
+    deleteDoc,
+    doc,
+    getDocs,
+    limit,
+    orderBy,
+    query,
+    serverTimestamp,
+    where,
+} from 'firebase/firestore';
+import { db } from '../firebase';
 
 // Use your local backend URL for development, 
 // and your public hosted backend URL for production!
@@ -38,48 +51,156 @@ export const authService = {
 
 export const bookService = {
     getAll: async () => {
-        const { data } = await api.get('/books');
-        return data;
+        const booksSnap = await getDocs(query(collection(db, 'books'), orderBy('title')));
+
+        const books = await Promise.all(
+            booksSnap.docs.map(async (bookDoc) => {
+                const bookData = bookDoc.data();
+                const chaptersSnap = await getDocs(
+                    query(collection(db, 'books', bookDoc.id, 'chapters'), orderBy('createdAt'))
+                );
+
+                const chapters = chaptersSnap.docs.map((chDoc, idx) => {
+                    const chData = chDoc.data();
+                    return {
+                        id: chData.id ?? idx + 1,
+                        title: chData.title || 'Untitled Chapter',
+                        meta: chData.meta || '',
+                        contentJson: chData.contentJson || JSON.stringify(chData.content || []),
+                    };
+                });
+
+                return {
+                    id: bookDoc.id,
+                    slug: bookData.slug,
+                    title: bookData.title,
+                    subtitle: bookData.subtitle || '',
+                    coverColor: bookData.coverColor || '#5d4037',
+                    author: bookData.author || 'Unknown',
+                    chapters,
+                };
+            })
+        );
+
+        return books;
     },
     getBySlug: async (slug) => {
-        const { data } = await api.get(`/books/${slug}`);
-        return data;
+        const bookSnap = await getDocs(query(collection(db, 'books'), where('slug', '==', slug), limit(1)));
+        if (bookSnap.empty) return null;
+
+        const bookDoc = bookSnap.docs[0];
+        const bookData = bookDoc.data();
+        const chaptersSnap = await getDocs(
+            query(collection(db, 'books', bookDoc.id, 'chapters'), orderBy('createdAt'))
+        );
+
+        const chapters = chaptersSnap.docs.map((chDoc, idx) => {
+            const chData = chDoc.data();
+            return {
+                id: chData.id ?? idx + 1,
+                title: chData.title || 'Untitled Chapter',
+                meta: chData.meta || '',
+                contentJson: chData.contentJson || JSON.stringify(chData.content || []),
+            };
+        });
+
+        return {
+            id: bookDoc.id,
+            slug: bookData.slug,
+            title: bookData.title,
+            subtitle: bookData.subtitle || '',
+            coverColor: bookData.coverColor || '#5d4037',
+            author: bookData.author || 'Unknown',
+            chapters,
+        };
     },
     create: async (book) => {
-        const { data } = await api.post('/books', book);
-        return data;
+        const payload = {
+            ...book,
+            createdAt: serverTimestamp(),
+        };
+        const ref = await addDoc(collection(db, 'books'), payload);
+        return { id: ref.id, ...book };
     },
     createChapter: async (bookId, chapter) => {
-        const { data } = await api.post(`/books/${bookId}/chapters`, chapter);
-        return data;
+        const chapterPayload = {
+            ...chapter,
+            createdAt: serverTimestamp(),
+        };
+        const ref = await addDoc(collection(db, 'books', String(bookId), 'chapters'), chapterPayload);
+        return { id: ref.id, ...chapter };
     }
 };
 
 export const highlightService = {
     getUserHighlights: async (userId) => {
-        const { data } = await api.get(`/highlights/${userId}`);
-        return data;
+        const q = query(
+            collection(db, 'highlights'),
+            where('userId', '==', userId),
+            orderBy('createdAt', 'desc')
+        );
+        const snap = await getDocs(q);
+        return snap.docs.map((d) => {
+            const data = d.data();
+            return {
+                id: d.id,
+                userId: data.userId,
+                chapterId: data.chapterId,
+                text: data.text,
+                date: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+            };
+        });
     },
     create: async (userId, chapterId, text) => {
-        const { data } = await api.post('/highlights', { userId, chapterId, text });
-        return data;
+        const ref = await addDoc(collection(db, 'highlights'), {
+            userId,
+            chapterId,
+            text,
+            createdAt: serverTimestamp(),
+        });
+        return { id: ref.id, userId, chapterId, text };
     },
     delete: async (id) => {
-        await api.delete(`/highlights/${id}`);
+        await deleteDoc(doc(db, 'highlights', String(id)));
     }
 };
 
 export const bookmarkService = {
     getUserBookmarks: async (userId) => {
-        const { data } = await api.get(`/bookmarks/${userId}`);
-        return data;
+        const q = query(
+            collection(db, 'bookmarks'),
+            where('userId', '==', userId),
+            orderBy('createdAt', 'desc')
+        );
+        const snap = await getDocs(q);
+        return snap.docs.map((d) => {
+            const data = d.data();
+            return {
+                id: d.id,
+                userId: data.userId,
+                chapterId: data.chapterId,
+            };
+        });
     },
     create: async (userId, chapterId) => {
-        const { data } = await api.post('/bookmarks', { userId, chapterId });
-        return data;
+        const ref = await addDoc(collection(db, 'bookmarks'), {
+            userId,
+            chapterId,
+            createdAt: serverTimestamp(),
+        });
+        return { id: ref.id, userId, chapterId };
     },
     delete: async (userId, chapterId) => {
-        await api.delete(`/bookmarks/${userId}/${chapterId}`);
+        const q = query(
+            collection(db, 'bookmarks'),
+            where('userId', '==', userId),
+            where('chapterId', '==', chapterId),
+            limit(1)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+            await deleteDoc(doc(db, 'bookmarks', snap.docs[0].id));
+        }
     }
 };
 
